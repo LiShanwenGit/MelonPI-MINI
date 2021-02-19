@@ -1,0 +1,627 @@
+\chapter{系统移植}
+\begin{introduction}
+	\item 环境搭建
+	\item u-boot移植
+	\item linux移植
+	\item rootfs移植
+	\item 深入探究
+\end{introduction}
+本章分三个部分来介绍Linux操作系统的移植，分别是bootloader，kernel，rootfs。其中bootloader使用最多的是u-boot，
+本书将使用u-boot来移植。kernel是Linux内核部分，rootfs是根文件系统。如图\ref{fig:struction}是这三者的结
+构图,
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.8\linewidth]{chapter2/img/1}
+	\caption{}
+	\label{fig:struction}
+\end{figure}
+bootloader是SoC芯片最开始执行的代码，这个部分的主要工作是进行硬件初始化，例如时钟初始化，SRAM
+初始化等，同时也为后面运行C语言建立环境(初始化堆栈)。kernel在存放在bootloader之后，对于SoC来说，代码都需
+要在RAM中运行，这里与MCU不一样的地方就是引入了MMU（内存管理单元）。对于MCU而言，由于其执行速度低，因此运行
+代码都在ROM中直接运行，而对于Flash而言，其读取速度远不及RAM的速度，因此对于运行速度非常快的SoC而言，所有
+的代码都需要在RAM中运行。但是这里有一个问题，RAM掉电数据将会丢失，故代码保存不可能放在RAM中，当前所有的嵌
+入式设备而言，代码保存都是放在ROM中，因此在SoC中运行代码需要将代码搬运到RAM中然后再执行。对于bootloader来
+说。其代码较少，很多开发者认为再将bootloader搬到RAM中实际意义不大，除非bootloader的体积很大。实际上在u-boot
+中，全志公司提供的代码是直接在ROM中运行的，当u-boot运行完大部分后会将kernel搬运到指定的RAM位置，之后将启
+动内核，这个启动过程后面会详细说明。对于根文件系统（rootfs)而言，由于其执行过程需要对ROM进行读写操作，因此
+可以不用搬运到RAM中，但是实际过程中内核启动后会产生一个虚拟的文件系统，该文件系统是挂在根文件系统的关键所
+在，这里不详细讲解。整体来说，大致的过程为，嵌入式设备上电后将执行bootloader，对硬件进行硬件和堆栈初始化，
+然后搬运内核到RAM中并启动内核，紧接着挂载根文件系统。
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+\faWarning \ 
+现在绝大多数SoC内部有一段固化的代码，该代码放在bootloader之前，也就是IROM，故实际上最开始执行的也并不
+是bootloader，而是芯片内部的IROM。IROM的主要目的是方便芯片的操作，例如通过USB对Flash芯片进行烧写程序
+。
+\end{tcolorbox}
+
+\section{环境搭建}
+\subsection{交叉工具链安装}
+所有的嵌入式设备开发都会用到各种工具，由于每个嵌入式SoC的芯片架构不同，其开发工具也不尽相同。当前用的最多
+的是ARM，本书中使用的Lite200主芯片的内核为ARM9，其架构使用的是ARMv5架构。最主要的工具为交叉工具链，对于F1C200S，
+使用的交叉工具链必须高于6.0版本，本书编译u-boot和kernel使用7.2.1版本，连接：\faChain \ 
+\href{https://releases.linaro.org/components/toolchain/binaries/7.2-2017.11/arm-linux-gnueabi/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi.tar.xz}{arm-linux-gnueabi-7.2}
+\quad 点击即可下载。
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faBellO \ 下载速度慢可以使用迅雷等下载软件进行下载。
+\end{tcolorbox}
+\noindent
+下载完成后解压文件：\\
+\textbf{tar -vxjf } gcc-linaro-7.2.1-2017.11-x86\_64\_arm-linux-gnueabi.tar.xz \\
+然后在/usr/local目录下新建arm-linux-gcc目录 \\
+\textbf{sudo mkdir } /usr/local/arm-linux-gcc \\
+进入解压目录下：\\
+\textbf{cd  } gcc-linaro-7.2.1-2017.11-x86\_64\_arm-linux-gnueabi/ \\
+将该目录下的所有文件复制到新建的目录下 \\
+\textbf{sudo cp -rd}  *  \  /usr/local/arm-linux-gcc/ \\
+最后需要添加该工具链的环境变量使其可以在任何目录下执行，打开/etc/profile文件\\
+\textbf{sudo vim }  /etc/profile  \\
+在文件末尾 添加以下内容\\
+PATH=\$PATH:/usr/local/arm-linux-gcc/bin \\
+添加完毕，使路径生效 \\
+\textbf{source }  /etc/profile  
+
+\begin{note}
+arm-linux-gnueabi与arm-linux-gnueabihf的区别在于前者可以编译无浮点运算单元的SoC芯片，而后者只能只能编译
+带浮点运算单元的芯片，由于全志F1C200S内部没有浮点运算单元，因此这里必须安装前者。对于全志V3s或者H3芯片，
+其内部有浮点运算单元，故应该安装后者。
+\end{note}
+
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+\faHandORight \ 上述也可以修改/etc/environment文件，在PATH值追加：\\
+:/usr/local/arm-linux-gcc/bin"
+\end{tcolorbox}
+\noindent
+下面验证交叉工具链是否成功安装：\\
+在任何目录中输入arm-linux-，然后连按两次Tab键，如果出现补全交叉工具链名称，则说明安装成功，如\ref{fig:arm-linux-gcc}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/arm-linux-gcc}
+	\caption{}
+	\label{fig:arm-linux-gcc}
+\end{figure} 
+
+\noindent
+如果没有出现，则进行下面操作:\\
+安装必要的动态链接库\\
+\textbf{sudo apt-get install} lib32ncurses5 lib32z1  \\
+上面安装的动态链接库主要是因为ubuntu是64位的操作系统，而交叉工具链是32位的，因此我们需要安装
+32位必须的一些动态链接库。
+
+
+\subsection{安装下载工具 (sunxi-tools)}
+\noindent 
+\faWarning \quad \textcolor{red}{该部分只针对SPI\_FLASH方式启动的用户而言，使用TF卡启动可以忽略此小结}
+
+因为后面会使用git工具，所以我们先要安装git工具，这个工具的目的就是从github上下载或者称之为克隆代码用的。
+使用如下命令安装git工具：\\
+\textbf{sudo apt-get}  install git  \\
+\noindent 
+然后我们下载我们需要使用的下载工具（sunxi-tools):\\
+\textbf{git} clone https://github.com/linux-sunxi/sunxi-tools.git -b f1c100s-spiflash \\
+克隆下来的工具将保存在当前目录下，进入该目录后，执行:\\
+\textbf{make} \\
+然后安装即可：\\
+\textbf{make install} 
+
+
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+\faWarning \ 
+如果出现错误，这是因为有些必要的依赖库没有安装，执行如下命令即可安装：\\	
+\textbf{sudo apt-get} install libusb-1.0-0-dev zlib1g-dev	\\
+若出现无法下载的情况，请先下载该库，然后手动安装即可，步骤如下：\\
+\textbf{wget }
+http://packages.deepin.com/deepin/pool/main/libu/libusb-1.0/libusb-1.0-0-dev\_1.0.21-1\_amd64.deb
+\\
+下载完毕后使用如下指令安装该库：\\
+\textbf{sudo dpkg} -i libusb-1.0-0-dev\_1.0.21-1\_amd64.deb
+\end{tcolorbox}
+
+\noindent
+安装完毕后需要验证是否安装成功，在终端输入：
+\textbf{sunxi-fel}   \\
+如果有如下输出则说明安装成功。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/chapter2-2-1}
+	\caption{}
+	\label{fig:chapter1-2-1}
+\end{figure}
+
+
+\section{u-boot移植（TF卡启动）}
+一般来说u-boot是启动内核的关键所在，当前大部分使用的嵌入式设备都是u-boot，最新版本的u-boot几乎包含当前主
+流的SoC芯片，Lite200使用的芯片和licheePI 
+nano相同，大部分硬件也是兼容的，为了快速移植该部分，这里采用licheePI
+nano的u-boot来进行移植。在终端输入如下命令克隆u-boot：\\
+\textbf{git clone}  https://github.com/Lichee-Pi/u-boot.git -b nano-v2018.01  \\
+克隆完毕文件会保存在当前目录下，进入该目录，\\
+\textbf{cd u-boot} \\
+在该文件夹下有很多分支，我们可以查看所有分支，使用如下命令：\\
+\textbf{git} branch -a \\
+现在我们使用的是nano开发板，所以将当前分支切换到nano分支，命令如下：\\
+\textbf{git} checkout nano-v2018.01  \\
+u-boot默认的没有指定交叉工具链和架构，因此在编译之前需要指定交叉工具链和芯片架构，u-boot的交叉编译器在u-boot
+的根目录下中的Makefile文件中定义了。打开Makefile文件：\\
+\textbf{vim} Makefile  \\
+找到CROSS\_COMPILE变量，将其改为如下：\\
+ARCH=arm  \\
+CROSS\_COMPILE=arm-linux-gnueabi-   \\
+如\ref{fig:chapter1-2-4}所示。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1 \linewidth]{chapter2/img/chapter2-2-3}
+	\caption{}
+	\label{fig:chapter1-2-3}
+\end{figure}
+config目录下是板级配置文件，由于每个板子的外设不同，因此编译之前必须要对u-boot进行配置。然而
+配置是一件比较繁琐的事情，特别是像u-boot这种比较复杂的项目而言，初学者几乎无法完成。幸运的是对于大部分开发
+板而言，config目录下有其配置好的默认配置文件。 进入config目录中，然后执行ls查看当前所有的配置文件\\
+\textbf{cd} config \\
+\textbf{ls}        \\
+找到licheepi\_nano\_defconfig和licheepi\_nano\_spiflash\_defconfig，前者表示为TF卡启动，后者表示从SPI
+设备启动，这里有前者即可，如图\ref{fig:chapter1-2-4}所示。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1 \linewidth]{chapter2/img/chapter2-2-4}
+	\caption{}
+	\label{fig:chapter1-2-4}
+\end{figure}
+现在回到上级目录，然后执行make licheepi\_nano\_defconfig \\
+\textbf{cd }.. \\
+\textbf{make} make licheepi\_nano\_defconfig  \\
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1 \linewidth]{chapter2/img/chapter2-2-5}
+	\caption{}
+	\label{fig:chapter1-2-5}
+\end{figure}
+配置完成后就可以进入图形界面进行配置了，执行make menuconfig命令：\\
+\textbf{make} menuconfig   \\
+此时出现图形配置选项，如图\ref{fig:chapter2-2-6}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/chapter2-2-6}
+	\caption{}
+	\label{fig:chapter2-2-6}
+\end{figure}
+图形配置选项中有两个非常重要的参数配置--传参，下小结重点讲解该部分。
+\subsection{传参}
+如图\ref{fig:struction}所示，其中parameter就是传参需要的参数地址。这里不得不提bootargs和bootcmd，这两个
+环境变量可以说是所有环境变量中最重要的变量，读者看完之后就会有体会。
+
+\subsubsection{bootcmd}
+在最开始提到过，内核一般不在flash中运行，这样就需要将内核搬运到内存中，这个过程需要u-boot来完成。对于mmc
+(TF卡)而言，在u-boot有专门的命令load 
+mmc，该命令可以将mmc中的代码从flash搬运到指定的地址处。当环境变量bootdelay计数到0时，此时uboot就会开始执
+行bootcmd中的命令。
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faBellO\ 
+	bootdelay这个环境变量是一个计数器，当u-boot主体运行完毕后，此时bootdelay该变量的值将会开始递减，递减
+	时间为1s，当递减到0时，此时u-boot将会跳转到bootcmd处开始执行bootcmd命令。
+\end{tcolorbox}
+load mmc命令的使用比较简单，这里以F1C200S例子来讲解\\
+\textbf{load mmc}  0:1 0x80008000 zImage  \\
+load 
+mmc有三个参数，第一个参数是mmc分区，第二个参数是目标地址，第三个参数是源文件。即上面了命令意思是将mmc的0：1
+分区中的zImage复制到内存中的0x80008000地址处。\\
+\textcolor{red}{\faCaretSquareORight \ TF卡属于mmc存储器的一种} 
+
+
+上面完成了zImage的搬运任务，但是当前大部分的驱动都是基于设备树写的，关于设备树的知识，后面将单独一章节讲解，
+这种基于设备树(dts)的驱动使得代码重复率降低，但是内核就需要对其设备进行解析，否则设备将无法确定是哪一个驱
+动。这里将引入dtb文件，所谓dtb文件就是dts文件通过dtc编译器编译成的目标文件即二进制文件。内核通过加载并解
+析并解析该文件从而获取驱动相关的配置信息。下面给出F1C200S中使用的\\
+\textbf{load mmc} 0:1 0x80c08000 suniv-f1c100s-licheepi-nano.dtb \\
+上面的命令意思是将mmc的0:1分区中的suniv-f1c100s-licheepi-nano.dtb文件加载到内存中的0x80c08000地址处。关
+于0x80008000和0x80c08000这两个地址是如何确定的后面会详细讲到。
+将zImage（也就是内核镜像文件）和dtb（设备树文件)搬运到了指定内存处，此时u-boot的任务完全结束了，剩下的工作就
+是启动内核了，这个就需要bootm或者bootz命令。这里以bootz命令为例，如下：\\
+\textbf{bootz} 0x80008000 - 0x80c08000 \\
+上面的意思是告诉内核镜像的起始地址为0x80008000，加载的设备树地址为0x80c08000。
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faWarning \  \\
+	$1.$  bootz命令的格式是：bootz空格0x80008000空格-空格0x80c08000,注意-左右有空格\\
+	$2.$  bootm命令是对没有使用设备树内核的镜像启动命令，早期版本的内核没有引入设备树，因此对于早期的内
+	核一般使用的是bootm，其命令格式为bootm 内核地址，比如bootm x0x30008000，意思是从0x30008000开始启动
+	内核，启动内核的过程其实是将pc指针指向该地址，这样处理器就会从该地址处运行代码。
+\end{tcolorbox}
+上面详细讲解了bootcmd环境变量，该环境变量若要执行多条命令，则每个命令之间用;隔开，例如F1C200S常用的bootcmd
+为：\\
+load mmc 0:1 0x80008000 zImage;load mmc 0:1 0x80c08000 suniv-f1c100s-licheepi-nano.dtb;bootz 
+0x80008000 - 0x80c08000;\\
+在图形配置界面中（图\ref{fig:chapter2-2-6}）,图\ref{fig:bootcmd}所示中默认开启了bootcmd，其中变量值为run
+ 
+distro\_bootcmd，这个值的意思是执行一个名为distro\_bootcmd的一个脚本文件。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootcmd}
+	\caption{}
+	\label{fig:bootcmd}
+\end{figure}
+对于一般的内核，可以直接上面的命令填写到bootcmd中，将光标移动到bootcmd value处，然后按回车键，进入编
+辑界面，如图\ref{fig:bootcmdvlaue}：\\
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootcmdvlaue}
+	\caption{}
+	\label{fig:bootcmdvlaue}
+\end{figure}
+选择【Ok】后按回车键即可保存该变量值。如图\ref{fig:bootcmdsave}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootcmdsave}
+	\caption{}
+	\label{fig:bootcmdsave}
+\end{figure}
+
+
+
+\subsubsection{bootargs}
+bootargs也是u-boot环境变量中一个非常重要的变量，上面已经讲解了内核的启动可以通过bootcmd来完成，那接下来内
+核启动完毕后必须挂在根文件系统(rootfs)。但是内核并不知道根文件系统的具体位置，我们必须要告诉根文件的位置
+后内核才能将其挂载，这时就需要有bootargs变量。该变量的作用是告诉内核根文件系统的位置和属性以及必要的配置，
+这个就是图\ref{fig:struction}中parameter的部分，u-boot会将bootargs的值（其实就是字符串）保存到事先规定好
+的地址处，当内核启动成功后就会获取该地址处的字符串值，然后对其进行解析并做相关的内核配置。这个过程看起来比
+较复杂，这里可以不用去了解细节，只需要知道bootargs是告诉内核根文件系统的位置属性以及一些配置参数。对于mmc
+而言，一般采用分区来划分内存区域，下面以F1C200S常用的bootargs来讲解。\\
+console=ttyS0,115200 panic=5 rootwait root=/dev/mmcblk0p2 earlyprintk rw \\
+上面console=ttyS0,115200表示终端为ttyS0即串口0,波特率为115200。panic=5字面意思是恐慌，即linux内核恐慌，
+其实就是linux不知道怎么执行了，此时内核就需要做一些相关的处理，这里的5表示超时时间，当Linux卡住5秒后仍未
+成功就会执行Linux恐慌异常的一些操作。rootwait该参数是告诉内核挂在文件系统之前需要先加载相关驱动，这样做的
+目的是防止因mmc驱动还未加载就开始挂载驱动而导致文件系统挂载失败，所以一般bootargs中都要加上这个参数。root=/dev/mmcblk0p2
+表示根文件系统的位置在mmc的0:2分区处，/dev是设备文件夹，内核在加载mmc中的时候就会在根文件系统中生成mmcblk0p2
+设备文件，该设备文件其实就是mmc的0:2分区，这样内核对文件系统的读写操作方式本质上就是读写/dev/mmcblk0p2该
+设备文件。earlyprintk参数是指在内核加载的过程中打印输出信息，这样内核在加载的时候终端就会输出相应的启动信
+息。rw表示文件系统的操作属性，此处rw表示可读可写。\\
+设置bootargs参数时将光标移动到Enable boot，
+arguments处，点击键盘'Y'按键使其参数开启，如图\ref{fig:bootargs}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootargs}
+	\caption{}
+	\label{fig:bootargs}
+\end{figure}
+然后将光标移动到下一个选项即Boot arguments (NEW)选项，然后按回车键对该环境变量进行编辑，将上面的bootargs
+字符串填写进入，然后按【Ok】键保存，如图\ref{fig:bootargssave}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootargssave}
+	\caption{}
+	\label{fig:bootargssave}
+\end{figure}
+
+\subsection{编译}
+先保存图形配置界面后推出界面，在终端执行make -j4即可对整个u-boot进行编译。\\
+\textbf{make} -j4 \\
+如图\ref{fig:ubootmake}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/ubootmake}
+	\caption{}
+	\label{fig:ubootmake}
+\end{figure}
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faBellO \  
+	make -j4后面的-j4表示4个核心进行编译，若电脑的处理器是2核心，请使用make -j2进行编译。
+\end{tcolorbox}
+编译完成后会在当前目录生成u-boot-sunxi-with-spl.bin烧录文件。如图\ref{fig:ubootsunxispl}，该文件就是我
+们最终要烧录的二进制文件。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/ubootsunxispl}
+	\caption{}
+	\label{fig:ubootsunxispl}
+\end{figure}
+在当前目录下会有一个隐藏的文件.config，该文件是u-boot编译后根据各个选项产生的配置文件，这个配置文件记录了
+所有配置选项的宏开关，编译的时候是根据最终的.config文件来进行编译的，当然编译前是需要有脚本解析.config文
+件然后进行相应的编译。
+\begin{note}
+	\textcolor{blue}{
+	关于u-boot的配置过程这里简单说明下，其文件结构的和linux内核结构大致相同，对于当前而言，其配置方式有三
+	种，分别是\\
+	1.\ make menuconfig \\
+	2.\ make xxx\_defconfig \\
+	3.\ .config  \\
+	这三种方式都可以对内核进行配置，三者之间的关系比作去饭店吃饭，make 
+	menuconfig可以看作菜单，.config和make xxx\_defconfig是客人点的菜，但是其三个文件之间可能因为存在依赖
+	关系,如果直接修改.config可能会导致配置失效。
+	}
+\end{note}
+只要将u-boot-sunxi-with-spl.bin烧录到tf卡的8k偏移处地址就可以了，烧录步骤如下：
+使用dd命令进行块搬移：\\
+sudo dd if=u-boot-sunxi-with-spl.bin of=/dev/sdb bs=1024 seek=8 \\
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faBellO \  
+	if指的是输入文件，of指的是输出文件，这里的输出文件为主机电脑的/dev/sdb文件，也就是TF卡，这个可以用gparted
+	软件查看，该软件可以直接用命令安装即可：sudo apt-get install 
+	gparted，安装好后打开该软件，如图\ref{fig:gparted}在右上角可以看到两个硬盘sda，其中一个是主机的本地
+	硬盘，另一个是TF，即sdb这里可以看到TF卡的卷标名为sdb，因此这里的of=/dev/sdb
+	烧录到8k偏移地址处是指绝对地址，这个绝对地址指的是TF卡的物理地址。这里为何是8k处而不是其他地址是由于F1C200S
+	内部的IROM中的一小段代码决定的。
+\end{tcolorbox}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/gparted}
+	\caption{}
+	\label{fig:gparted}
+\end{figure}
+烧录完毕后如图\ref*{fig:dd}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/dd}
+	\caption{}
+	\label{fig:dd}
+\end{figure}
+现在这个TF卡内的u-boot可以启动内核了。将TF卡插入到开发板上，然后通过USB连接到电脑端，打开串口工具，可以看
+到按下开发板上的复位按钮，可以看到此时串口终端有信息输出，如图\ref{fig:ubootstart}，由于没有烧录内核，因
+此加载内核失败，停止在了u-boot命令终端处。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/ubootstart}
+	\caption{}
+	\label{fig:ubootstart}
+\end{figure}
+可以在终端输入pri命令打印环境变量的所有值，如图\ref{fig:bootpri}所示，可以看到bootcmd和bootargs是正确的
+。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootpri}
+	\caption{}
+	\label{fig:bootpri}
+\end{figure}
+
+
+也许到这里读者可能会认为u-boot内容结束了，其实不然，u-boot还有很多需要分析，由于有些部分过于复杂，对初学
+者不友好，因此u-boot的进阶内容将放到后面详细讲解。
+
+
+\section{内核移植}
+内核移植相对与u-boot移植复杂些，对于F1C200S而言，Linux官方源码已经对licheepi nano进行了支持，因此本次移
+植采用licheepi nano的配置文件，下面以linux5.7版本内核来讲解kernel移植步骤。
+进入linux内核官网(\href{https://www.kernel.org/}{https://www.kernel.org/}),点击https://www.kernel.org/pub/
+进入下载界面，如图\ref{fig:linuxkernel}，下载连接为
+\href{https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.7.1.tar.gz}{https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.7.1.tar.gz}
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/linuxkernel}
+	\caption{}
+	\label{fig:linuxkernel}
+\end{figure}
+,可以使用下载工具进行下载，下载后的源码包通过FTP传输到虚拟机。上传完毕后进入虚拟机解压源码，和u-boot步骤
+一样，在编译前必须对源码进行配置。进入该源码中的arch/arm/configs目录中，可以看到有很多开发板的配置文件，
+其中sunxi\_defconfig是全志的配置文件，但是该配置文件非常不全，需要额外配置大量的选项，一般选项多大上千个，
+这里先使用licheepi\_nano的配置文件。https://github.com/LiShanwenGit/MelonPI-MINI/tree/master/software
+该目录下有一个linux-licheepi\_nano\_defconfig文件，这个文件是针对licheepi\_nano的配置文件。这个配置文件
+与Lite200完全兼容，后面会详细分析该文件以及一些配置，这里为了快速启动内核就不做过多阐述。下载该文件，然后
+将其放到arch/arm/configs/目录下，如图\ref{fig:configs}，然后回到主目录，和u-boot一样，在编译时必须指定交
+叉编译器。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/configs}
+	\caption{}
+	\label{fig:configs}
+\end{figure}
+打开主目录下的Makefile文件，然后找到CROSS\_COMPILE变量，将其修改为读者使用的交叉工具链前缀，同时指定架构
+即ARCH变量，这里使用arm-linux-gnueabi-为例，如图
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/linuxmakefile}
+	\caption{}
+	\label{fig:linuxmakefile}
+\end{figure}
+保存退出，然后在终端处执行\\
+\textbf{make} menuconfig \\
+进入图形配置界面，如图\ref{fig:linuxmenuconfig}所示。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/linuxmenuconfig}
+	\caption{}
+	\label{fig:linuxmenuconfig}
+\end{figure}
+可以看到其配置模式和u-boot近似相同，也是通过上下键左右来操作和[Y][N]键来选择是否编译进内核。这里简单的先
+让linux内核跑起来，因此使用默认配置，不做任何修改。选择[Save]然后退出，在终端下输入\\
+\textbf{make} -j4 \\
+如图\ref{fig:linuxmakepng}所示。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/linuxmakepng}
+	\caption{}
+	\label{fig:linuxmakepng}
+\end{figure}
+编译完毕后在就会生成zImage文件和dtb文件，zImage在arch/arm/boot目录下，dtb在arch/arm/boot/dts目录下。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/zImagepng}
+	\caption{}
+	\label{fig:zimagepng}
+\end{figure}
+如图\ref{fig:zimagepng}。镜像编译完毕后就需要将其烧录到TF卡中，从上面的u-boot中bootcmd中可以看到需要将zImage
+和dtb文件复制到TF卡的0:1分区中，这样u-boot在执行bootcmd中的load mmc命令时就可以找到zImage和dtb文件。下面
+来对TF卡进行分区。分区工具最常用的是gparted软件，该软件可以直接在终端中安装即可。\\
+sudo apt-get install gparted\\
+然后插入TF卡到电脑的USB上，打开该软件，可以看到此时有两个硬盘，一个是sda另一个是sdb，其中sdb就是TF卡。如
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/gpartedpng}
+	\caption{}
+	\label{fig:gpartedpng}
+\end{figure}
+图\ref{fig:gpartedpng}所示，选中sdb，可以看到有一个未分配的空间，一般对于嵌入式系统而言需要将其分两个区，
+一个是存放zImage和dtb文件，另一个区存放根文件系统。对于第一个分区，一般格式为fat16格式，对于第二个区，一
+般为ext4格式。下面开始分区操作。
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faWarning\  
+	这里第一分区格式只能是fat16格式，原因在于在u-boot中对mmc的操作命令load只支持fat16格式，不支持ext2、
+	3或者4格式，因此第一分区只能是fat16，对于第二分区，一般分区为ext4格式，原因在于一般Linux操作系统默认
+	挂载的文件系统格式是ext类型的。
+\end{tcolorbox}
+
+
+选中未分配空间并右击鼠标，点击[新建]，然后填写相关属性，如图\ref{fig:bootpartedpng}，然后点击[添加],所示
+。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/bootpartedpng}
+	\caption{}
+	\label{fig:bootpartedpng}
+\end{figure}
+，以相同的方式新建第二分区，如图\ref{fig:rootfspartedpng}所示，最后点击[对勾]完成分区操作，如图\ref{fig:partedsave}
+\begin{figure}[htbp]
+	\centering
+	\begin{minipage}[c]{0.5\textwidth}
+	\centering
+	\includegraphics[width=0.98\linewidth]{chapter2/img/rootfspartedpng}
+	\caption{}
+	\label{fig:rootfspartedpng}
+	\end{minipage}%
+	\begin{minipage}[c]{0.5\textwidth}
+	\centering
+	\includegraphics[width=0.98\linewidth]{chapter2/img/partedsave}
+	\caption{}
+	\label{fig:partedsave}
+	\end{minipage}
+\end{figure}
+，最终分区如图\ref{fig:partedfinish}
+\begin{figure}[htbp]
+	\centering
+	\begin{minipage}[c]{0.5\textwidth}
+		\centering
+		\includegraphics[width=0.98\linewidth]{chapter2/img/partedfinish}
+		\caption{}
+		\label{fig:partedfinish}
+	\end{minipage}%
+	\begin{minipage}[c]{0.5\textwidth}
+		\centering
+		\vspace{0.6cm}
+		\includegraphics[width=0.98\linewidth]{chapter2/img/linuxsatrtfinish}
+		\vspace{0.6cm}
+		\caption{}
+		\label{fig:linuxsatrtfinish}
+	\end{minipage}
+\end{figure}
+分区完毕后剩下的就是将zImage和dtb文件复制到TF卡的BOOT分区中。此时复制可以直接通过图形操作即可，也可以通过
+命令复制。将复制好内核的TF卡插到Lite200上接上USB和串口即可看到终端有信息输出，如图\ref{fig:linuxsatrtfinish}
+
+所示，可以看到内核已经成功启动，不过最终内核卡住了，其原因在于没有根文件系统，下节开始移植根文件系统。
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faWarning\  
+	上面仅仅是简单的启动了Linux内核，实际还有很多文件需要分析，但这里作为简单的了解大致的过程，故不做深入
+	讲解，后面分析驱动的时候将会详细讲解内核的文件结构和设备树相关的驱动以及如何添加和修改驱动。
+\end{tcolorbox}
+
+
+\section{根文件系统移植}
+根文件系统是内核启动后挂载的第一个文件系统，如果没有根文件系统，内核将无法开启shell以及其他进程，下面来开
+始移植根文件系统。
+\begin{note}
+	实际上内核启动后会先挂载一个虚拟的文件系统，这个虚拟文件系统是在内存中运行的，其主要运行核心进程，虚拟
+	文件系统挂载之后才挂载硬盘（TF卡或者emmc）上的根文件系统。
+\end{note}
+制作根文件系统的工具最有名的莫过于busyBox，该工具体积非常小，非常适合制作根文件系统。但是笔者尝试过使用busyBox
+制作，然而体积较大，这主要原因在于文件系统需要有动态库和静态库，而对于7.2版本的交叉编译器而言，其动态和静
+态链接库实在太大，因此本文将使用另一个非常强悍的工具--Buildroot，该工具集成了非常多的其他应用，制作过程相
+对简单，不会像busyBox那样出现硬件架构不兼容情况。
+
+由于根文件系统制作比较简单，这里就完全从头开始。进入buildroot官网（{https://buildroot.org/downloads/}{https://buildroot.org/downloads/}）
+下面以buildroot2018.2.11版本作为移植示例。将下载的源码包上传到虚拟机上，然后解压进入该源码目录中。
+进入源码目录后在终端输入\\
+\textbf{make} clean \\
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faWarning \  
+	在开始编译之前必须执行make clean以清楚一些预设配置，即使是第一次编译也是一样。
+\end{tcolorbox}
+然后执行\\
+\textbf{make} menuconfig \\
+此时会进入图形配置界面，如图\ref{fig:buildrootmakemenuconfig}。进入第一个Target 
+options选项，配置如图\ref{fig:buildarch}
+\begin{figure}[htbp]
+	\centering
+	\begin{minipage}[c]{0.5\textwidth}
+	\centering
+	\includegraphics[width=0.98\linewidth]{chapter2/img/buildrootmakemenuconfig}
+	\caption{}
+	\label{fig:buildrootmakemenuconfig}
+	\end{minipage}%
+	\begin{minipage}[c]{0.5\textwidth}
+	\centering
+	\includegraphics[width=0.98\linewidth]{chapter2/img/buildarch}
+	\caption{}
+	\label{fig:buildarch}
+	\end{minipage}
+\end{figure}
+第一个选项为架构选择，这里选择ARM架构小端模式，第二个为输出的二进制文件格式，这里选择EFL格式，第三个为架构
+体系，这里选择arm926t，因为F1C100S的架构就是这个架构，第四个为矢量浮点处理器，这里不勾选，因为对于F1C100S
+而言，其内部没有浮点运算单元，只能进行软浮点运算，也就是模拟浮点预运算。
+第五个为应用程序二进制接口，这里选择EABI，原因是该格式支持软件浮点和硬件实现浮点功能混用。
+第六个为浮点运算规则，这里使用软件浮点，第七个选择指令集，这里选择ARM指令集，因为thumb主要针对Cortex M系
+列而言的，对于运行操作系统的A系列以及ARM9和ARM11而言，使用的都是32位的ARM指令集。
+
+
+保存后，回到上一级配置界面，然后进入第二个Build options选项，配置如图\ref{fig:buildoptions}。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/buildoptions}
+	\caption{}
+	\label{fig:buildoptions}
+\end{figure}
+保存后，回到上一级配置界面，然后进入第三个Toolchain选项，配置如图\ref{fig:buildtoolschains}。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/buildtoolschains}
+	\caption{}
+	\label{fig:buildtoolschains}
+\end{figure}
+这里是选择交叉工具链，对于初学者而言，最好选择buildroot指定的默认交叉工具链，因为这里涉及到C库问题，如果
+使用自己安装的交叉工具链，编译很可能会报错，因为使用的C库不匹配。黄色框中的选项尽可能勾选，因为后面移植QT5
+的时候需要用到C++相关库，如果这里没有勾选，QT5选项将无法勾选。
+
+保存后回到上一级配置界面，然后进入第四个System configuration选项，配置如图\ref{fig:builrsystem}。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/builrsystem}
+	\caption{}
+	\label{fig:builrsystem}
+\end{figure}
+第一个红色框中表示启动根文件系统后输出的信息（横幅），这里默认，当然你也可以修改此值，比如改为Welcome to 
+Lite200，第二个红色框中表示开启登录密码，可以看到默认密码为空，这里就默认了，读者也可以根据自己情况修改即
+可。
+
+
+保存后回到上一级配置界面，可以看到后面还有部分选项没有配置，由于剩下的选项也可以不用配置，因此这里为了简便，
+直接保持推出，然后执行\\
+\textbf{make}
+\begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
+	\faWarning\  
+	这里最好不要用多核编译，一般来说，首次编译过程非常慢，因为要下载很多必要的文件和交叉工具链。
+\end{tcolorbox}
+编译完毕后可以在output/images目录下有一个rootfs.tar，该文件就是最终生成的根文件系统镜像，现在只需要将该镜
+像解压到TF卡的第二分区即可。插入TF卡到电脑端，进入out/images目录，然后输入\\
+sudo tar -xvf rootfs.tar -C  /media/lsw/rootfs/ \\
+此时可以看到TF卡的rootfs分区中有文件系统了，现在将TF卡弹出，插入到Lite200上，连接好串口，打开串口助手或者
+其他串口终端软件，可以看到根文件系统成功挂载，同时进入shell交互，如图\ref{fig:rootfssatrt}。
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=1\linewidth]{chapter2/img/rootfssatrt}
+	\caption{}
+	\label{fig:rootfssatrt}
+\end{figure}
+用户名默认为root，无密码，进入root账号后，在终端输出\\
+\textbf{cd} /\\
+\textbf{ls} \\
+可以看到文件系统中的linux的根目录情况，到此根文件系统的移植完成。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

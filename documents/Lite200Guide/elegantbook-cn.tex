@@ -1,0 +1,80 @@
+\documentclass[cn,11pt,chinese]{elegantbook}
+
+\title{Lite200开发指南}
+\subtitle{Lite200 Development Guide }
+
+\author{leesans\ (LiShanwen)}
+%\institute{野生技术协会}
+\date{2021年2月5日}
+\version{3.1}
+\bioinfo{协议}{GPL2.0}
+
+\extrainfo{温柔正确的人总是难以生存，因为这世界既不温柔，也不正确。—— 比企谷八幡}
+
+\logo{logo-blue.png}
+\cover{cover.jpg}
+
+% 本文档命令
+\usepackage{array}
+\newcommand{\ccr}[1]{\makecell{{\color{#1}\rule{1cm}{1cm}}}}
+
+\usepackage{mathrsfs}
+\usepackage{warning}
+\usepackage{soul}
+\usepackage{alertmessage}
+\usepackage{caption}
+\usepackage{graphicx, subfig}
+\usepackage{svg}
+\usepackage{fontawesome}
+\usepackage{tcolorbox}
+
+\usepackage[tikz]{bclogo}
+
+\usepackage{listings}
+\usepackage{xcolor}
+
+\setcounter{tocdepth}{3}
+\setcounter{secnumdepth}{3}
+\usepackage{amssymb}
+\usepackage{wrapfig}
+\usepackage{graphicx}
+\usepackage{subfig}%多个子图
+
+\begin{document}
+
+\maketitle
+\frontmatter
+
+\chapter*{特别声明}
+\markboth{Introduction}{前言}
+
+在过去的 2019 年，\href{https://elegantlatex.org/}{Elegant\LaTeX{}} 系列模板均逐步上线 \href{https://github.com/ElegantLaTeX}{GitHub}、\href{https://ctan.org/pkg/elegantbook}{CTAN}、\href{https://www.overleaf.com/latex/templates/elegantbook-template/zpsrbmdsxrgy}{Overleaf} 以及 \href{https://gitee.com/ElegantLaTeX/ElegantBook}{Gitee} 上。截止到 2019 年底，ElegantNote、ElegantBook、ElegantPaper 三个模板在 GitHub 上的收藏数达到了 194、333 和 220，从 2019 年 5 月开启捐赠之后收到了用户 33 笔合计超过 1500 元的捐赠，用户群人数也超过了 400 人。这些数字的背后，反映出 Elegant\LaTeX{} 越来越受用户的喜爱，在此非常感谢大家。
+
+但是，我想声明的是：
+
+\begin{center}
+  由于某些原因，Elegant\LaTeX{} 项目 \underline{不再接受}\textbf{任何}非我本人预约的提交。
+\end{center}
+
+我是一个理想主义者，关于这个模板，我有自己的想法。我所关心的是，我周围的人能方便使用 \LaTeX{} 以及此模板，我自己会为自己的东西感到开心。如果维护模板让我不开心，那我就不会再维护了。诚然这个模板并不是完美的，但是相比 2.x 好很多了，这些改进离不开大家的反馈、China\TeX{} 和逐鹿人的鼓励以及支援人员的帮助！
+
+\underline{如果你无法认同我的想法，建议直接删除本模板。}
+
+\vskip 1.5cm
+
+\begin{flushright}
+Ethan Deng\\
+February 10, 2020
+\end{flushright}
+
+\tableofcontents
+%\listofchanges
+\mainmatter
+
+\input{./chapter1/chapter1}
+\input{./chapter2/chapter2}
+
+
+
+
+\end{document}
