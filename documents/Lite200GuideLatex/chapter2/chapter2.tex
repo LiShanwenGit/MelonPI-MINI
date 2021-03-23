@@ -38,7 +38,8 @@ bootloader是SoC芯片最开始执行的代码，这个部分的主要工作是�
 \subsection{交叉工具链安装}
 所有的嵌入式设备开发都会用到各种工具，由于每个嵌入式SoC的芯片架构不同，其开发工具也不尽相同。当前用的最多
 的是ARM，本书中使用的Lite200主芯片的内核为ARM9，其架构使用的是ARMv5架构。最主要的工具为交叉工具链，对于F1C200S，
-使用的交叉工具链必须高于6.0版本，本书编译u-boot和kernel使用7.2.1版本，连接：\faChain \ 
+使用的交叉工具链必须高于6.0版本，本书编译u-boot和\\
+kernel使用7.2.1版本，连接：\faChain \ 
 \href{https://releases.linaro.org/components/toolchain/binaries/7.2-2017.11/arm-linux-gnueabi/gcc-linaro-7.2.1-2017.11-x86_64_arm-linux-gnueabi.tar.xz}{arm-linux-gnueabi-7.2}
 \quad 点击即可下载。
 \begin{tcolorbox}[colback=red!5!white,colframe=red!75!black]
@@ -225,8 +226,8 @@ mmc有三个参数，第一个参数是mmc分区，第二个参数是目标地�
 	核一般使用的是bootm，其命令格式为bootm 内核地址，比如bootm x0x30008000，意思是从0x30008000开始启动
 	内核，启动内核的过程其实是将pc指针指向该地址，这样处理器就会从该地址处运行代码。
 \end{tcolorbox}
-上面详细讲解了bootcmd环境变量，该环境变量若要执行多条命令，则每个命令之间用;隔开，例如F1C200S常用的bootcmd
-为：\\
+上面详细讲解了bootcmd环境变量，该环境变量若要执行多条命令，则每个命令之间用;隔开，例如\\
+F1C200S常用的bootcmd为：\\
 load mmc 0:1 0x80008000 zImage;load mmc 0:1 0x80c08000 suniv-f1c100s-licheepi-nano.dtb;bootz 
 0x80008000 - 0x80c08000;\\
 在图形配置界面中（图\ref{fig:chapter2-2-6}）,图\ref{fig:bootcmd}所示中默认开启了bootcmd，其中变量值为run

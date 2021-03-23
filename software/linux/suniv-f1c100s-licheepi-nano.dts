@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR X11)
+/*
+ * Copyright 2018 Icenowy Zheng <icenowy@aosc.io>
+ */
+
+/dts-v1/;
+#include "suniv-f1c100s.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+	model = "Lichee Pi Nano";
+	compatible = "licheepi,licheepi-nano", "allwinner,suniv-f1c100s";
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	reg_vcc3v3: vcc3v3 {
+                compatible = "regulator-fixed";
+                regulator-name = "vcc3v3";
+                regulator-min-microvolt = <3300000>;
+                regulator-max-microvolt = <3300000>;
+        };
+
+};
+
+&uart0 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart0_pe_pins>;
+	status = "okay";
+};
+
+
+&mmc0 {
+        vmmc-supply = <&reg_vcc3v3>;
+        bus-width = <4>;
+        broken-cd;
+        status = "okay";
+};
+
+
+
+&otg_sram {
+        status = "okay";
+};
+
+&usb_otg {
+        dr_mode = "otg";
+        status = "okay";
+};
+
+&usbphy {
+        usb0_id_det-gpio = <&pio 4 2 GPIO_ACTIVE_HIGH>; /* PE2 */
+        status = "okay";
+};
+
+
+&spi1 {
+    st7789v@0 {
+        status = "okay";
+        compatible = "sitronix,st7789v";
+               reg = <0>;
+               spi-max-frequency = <32000000>;
+               rotate = <90>;
+               spi-cpol;
+               spi-cpha;
+               rgb;
+               fps = <30>;
+               buswidth = <8>;
+	       reset-gpios=<&pio 4 3 GPIO_ACTIVE_LOW>;
+               dc-gpios = <&pio 4 5 GPIO_ACTIVE_LOW>;
+               debug = <0>;
+        };
+}; 
