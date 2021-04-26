@@ -276,8 +276,31 @@ address-cells表示该节点的地址要用多少个32位数来表示，size-cel
 	备树则默认按照地址cell为2个，长度cell为1个去解析reg的值。
 \end{tcolorbox}
 
+
+
+
+
+
+
+\subsubsection{reg}
+这个属性表示寄存器的地址，这个属性非常重要，因为设备驱动最重操作的是寄存器的值。在加载内核驱动后，内核首先
+要做的是解析DTB文件，通过获取DTB文件就可以获取设备相应的寄存器地址。在设备树中，reg属性是描述一段内存的，
+这段内存的大小由\#address-cells和\#size-cells决定，其中\#address-cells表示设备树总线宽度需要用多少个cell
+表示（默认一个cell为32位，即四个字节），\#size-cells表示设备树总线上设备挂载的地址空间大小需要多少个cell表
+示。
+
+
+
+
+
+
 \subsubsection{ranges}
 该属性一般为空，如果不为空，则表示一个地址映射表或者叫地址转换表，其一般
+
+
+
+
+
 
 
 

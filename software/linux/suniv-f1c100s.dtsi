@@ -7,6 +7,8 @@
 #include <dt-bindings/clock/suniv-ccu-f1c100s.h>
 #include <dt-bindings/reset/suniv-ccu-f1c100s.h>
 
+#define SUN4I_DMA_NORMAL 0
+
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
@@ -360,5 +362,28 @@
             pinctrl-names = "default";
             pinctrl-0 = <&spi1_pins>;
         };
+
+        dma: dma-controller@1c02000 {
+			compatible = "allwinner,suniv-f1c100s-dma";
+			reg = <0x01c02000 0x1000>;
+			interrupts = <18>;
+			clocks = <&ccu CLK_BUS_DMA>;
+			resets = <&ccu RST_BUS_DMA>;
+			#dma-cells = <2>;
+		};
+
+        codec: codec@1c23c00 {
+			compatible = "allwinner,suniv-f1c100s-codec";
+			reg = <0x01c23c00 0x400>;
+			interrupts = <21>;
+			clocks = <&ccu CLK_BUS_CODEC>,
+				 <&ccu CLK_CODEC>;
+			clock-names = "apb", "codec";
+			resets = <&ccu RST_BUS_CODEC>;
+			dmas = <&dma SUN4I_DMA_NORMAL 0x0c>, 
+				   <&dma SUN4I_DMA_NORMAL 0x0c>;
+			dma-names = "rx", "tx";
+			status = "disabled";
+		};
 	};
 };
